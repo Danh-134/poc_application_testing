@@ -135,3 +135,25 @@ else
   echo "Group deletion failed: Expected status code 200/202/204, got $DELETE_GROUP_RESPONSE"
   exit 1
 fi
+
+####################################################################
+# Create and run a sample Robot Framework API test
+####################################################################
+echo "=== Creating a sample Robot Framework test file ==="
+cat > sample_api_test.robot << 'EOF'
+*** Settings ***
+Library           RequestsLibrary
+
+*** Test Cases ***
+Get GitLab Version
+    [Documentation]    Verify that the GitLab API returns version information.
+    Create Session    gitlab    ${GITLAB_API_URL}
+    ${resp}=          GET    gitlab/api/v4/version
+    Should Be Equal As Integers    ${resp.status_code}    200
+    Log    GitLab version is: ${resp.json()['version']}
+EOF
+
+echo "=== Running the Robot Framework test ==="
+robot sample_api_test.robot
+
+echo "=== All operations completed successfully. ==="

@@ -1,0 +1,89 @@
+stages:
+- gitlab_features
+
+gitlab_main_features:
+  stage: gitlab_features
+  image: robotframework/robotframework:latest
+  variables:
+    GIT_COMMITTER_NAME: "CI Bot"
+    GIT_COMMITTER_EMAIL: "ci@example.com"
+  script:
+  - echo "Starting GitLab main features demonstration..."
+
+  ###############################
+  # Step 1: Clone Sample Project
+  ###############################
+  - echo "Cloning the sample project repository..."
+  # The OAuth2 token is inserted in the URL for HTTPS authentication.
+  # The substitution "${SAMPLE_PROJECT_REPO#https://}" removes the "https://" prefix.
+  - git clone "https://oauth2:${GITLAB_PRIVATE_TOKEN}@${SAMPLE_PROJECT_REPO#https://}" sample-project
+  - cd sample-project
+
+  ##########################################
+  # Step 2: Create a New GitLab Group via API
+  ##########################################
+  - echo "Creating a new GitLab group via API..."
+  - |
+    GROUP_CREATE_RESPONSE=$(curl --silent --fail --header "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" \
+        -X POST "${GITLAB_API_URL}/api/v4/groups" \
+        -d "name=CI-Test-Group&path=ci-test-group")
+  - echo "Group creation response: $GROUP_CREATE_RESPONSE"
+  # Extract the group ID using Python (assumes the response is valid JSON)
+  - GROUP_ID=$(echo "$GROUP_CREATE_RESPONSE" | python -c "import sys, json; print(json.load(sys.stdin)['id'])")
+  - echo "Created group with ID: $GROUP_ID"
+
+  ############################################
+  # Step 3: Create a New GitLab User via API
+  ############################################
+  - echo "Creating a new GitLab user via API..."
+  - |
+    USER_CREATE_RESPONSE=$(curl --silent --fail --header "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" \
+        -X POST "${GITLAB_API_URL}/api/v4/users" \
+        -d "email=newuser@example.com&username=newuser&name=New User&password=NewUserPassword")
+  - echo "User creation response: $USER_CREATE_RESPONSE"
+  # Extract the user ID using Python
+  - USER_ID=$(echo "$USER_CREATE_RESPONSE" | python -c "import sys, json; print(json.load(sys.stdin)['id'])")
+  - echo "Created user with ID: $USER_ID"
+
+  ##############################################################
+  # Step 4: Add the Newly Created User to the New Group via API
+  ##############################################################
+  - echo "Adding the new user to the group..."
+  - |
+    ADD_MEMBER_RESPONSE=$(curl --silent --fail --header "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" \
+        -X POST "${GITLAB_API_URL}/api/v4/groups/${GROUP_ID}/members" \
+        -d "user_id=${USER_ID}&access_level=30")
+  - echo "Add member response: $ADD_MEMBER_RESPONSE"
+
+  ###############################################################
+  # Step 5: Modify README.md, Commit, and Push Changes to GitLab
+  ###############################################################
+  - echo "Modifying README.md..."
+  - echo "Updated by CI pipeline on $(date)" >> README.md
+  - echo "Configuring Git..."
+  - git config --global user.email "$GIT_COMMITTER_EMAIL"
+  - git config --global user.name "$GIT_COMMITTER_NAME"
+  - git add README.md
+  - git commit -m "Update README.md via CI pipeline"
+  - echo "Pushing changes to the repository..."
+  - git push origin HEAD
+
+  ##########################################################
+  # Step 6: Run a Simple Robot Framework API Test (Optional)
+  ##########################################################
+  - echo "*** Running a sample Robot Framework test case ***"
+  - |
+    cat > sample_api_test.robot << 'EOF'
+    *** Settings ***
+    Library           RequestsLibrary
+
+    *** Test Cases ***
+    Get GitLab Version
+        Create Session    gitlab    ${GITLAB_API_URL}
+        ${resp}=          GET    gitlab/api/v4/version
+        Should Be Equal As Integers    ${resp.status_code}    200
+        Log    GitLab version is: ${resp.json()['version']}
+    EOF
+  - robot sample_api_test.robot
+  only:
+  - main

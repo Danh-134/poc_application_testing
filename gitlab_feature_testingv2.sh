@@ -106,12 +106,97 @@ test_connection() {
     log_msg "Connected to GitLab v${ver}"
 }
 
+
+#------------------------------------------------------------------------------
+# GitLab operations
+#------------------------------------------------------------------------------
+
+create_test_group() {
+    log_msg "Creating test group..."
+    
+    local resp
+    resp=$(curl -sf -H "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" \
+        -X POST "${GITLAB_API_URL}/api/v4/groups" \
+        -d "name=${GROUP_NAME}" \
+        -d "path=${GROUP_PATH}") || return 1
+    
+    GROUP_ID=$(echo "$resp" | jq -r '.id')
+    [ -z "$GROUP_ID" ] || [ "$GROUP_ID" = "null" ] && return 1
+    
+    log_msg "Group created: $GROUP_ID"
+}
+
+create_test_user() {
+    log_msg "Creating test user..."
+    
+    local resp
+    resp=$(curl -sf -H "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" \
+        -X POST "${GITLAB_API_URL}/api/v4/users" \
+        -d "email=${USER_EMAIL}" \
+        -d "username=${USER_USERNAME}" \
+        -d "name=${USER_NAME}" \
+        -d "password=${USER_PASSWORD}" \
+        -d "skip_confirmation=true") || return 1
+    
+    USER_ID=$(echo "$resp" | jq -r '.id')
+    [ -z "$USER_ID" ] || [ "$USER_ID" = "null" ] && return 1
+    
+    log_msg "User created: $USER_ID"
+}
+
+add_member() {
+    log_msg "Adding user to group..."
+    
+    curl -sf -H "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" \
+        -X POST "${GITLAB_API_URL}/api/v4/groups/${GROUP_ID}/members" \
+        -d "user_id=${USER_ID}" \
+        -d "access_level=${ACCESS_LEVEL}" > /dev/null || return 1
+    
+    log_msg "Member added successfully"
+}
+
+cleanup_project() {
+    local pid=$1
+    local code
+    code=$(curl -sw "%{http_code}" -o /dev/null \
+        -H "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" \
+        -X DELETE "${GITLAB_API_URL}/api/v4/projects/${pid}")
+    
+    [[ "$code" =~ ^(200|202|204)$ ]] && log_msg "Project deleted" || err_msg "Failed to delete project"
+}
+
+cleanup_user() {
+    local uid=$1
+    local code
+    code=$(curl -sw "%{http_code}" -o /dev/null \
+        -H "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" \
+        -X DELETE "${GITLAB_API_URL}/api/v4/users/${uid}")
+    
+    [[ "$code" =~ ^(200|202|204)$ ]] && log_msg "User deleted" || err_msg "Failed to delete user"
+}
+
+cleanup_group() {
+    local gid=$1
+    local code
+    code=$(curl -sw "%{http_code}" -o /dev/null \
+        -H "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" \
+        -X DELETE "${GITLAB_API_URL}/api/v4/groups/${gid}")
+    
+    [[ "$code" =~ ^(200|202|204)$ ]] && log_msg "Group deleted" || err_msg "Failed to delete group"
+}
+
 main() {
     log_msg "Starting GitLab integration test"
     
     verify_tools
     verify_config
     test_connection
+    
+    clone_repo || exit 1
+    
+    create_test_group || exit 1
+    create_test_user || exit 1
+    add_member || exit 1
     
     return 0
 }

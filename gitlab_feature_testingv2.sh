@@ -185,6 +185,46 @@ cleanup_group() {
     [[ "$code" =~ ^(200|202|204)$ ]] && log_msg "Group deleted" || err_msg "Failed to delete group"
 }
 
+#------------------------------------------------------------------------------
+# Git operations on local machine
+#------------------------------------------------------------------------------
+
+clone_repo() {
+    log_msg "Cloning repository..."
+    
+    [ -d "$CLONE_DIR" ] && rm -rf "$CLONE_DIR"
+    
+    local url="${SAMPLE_PROJECT_REPO#https://}"
+    git clone "https://oauth2:${GITLAB_PRIVATE_TOKEN}@${url}" "$CLONE_DIR" || return 1
+    
+    cd "$CLONE_DIR" || return 1
+    log_msg "Repository cloned"
+}
+
+commit_and_push() {
+    log_msg "Making changes and pushing..."
+    
+    [ ! -d ".git" ] && { err_msg "Not in git repo"; return 1; }
+    
+    echo "" >> README.md
+    echo "Test run: $(date)" >> README.md
+    
+    git config user.email "$GIT_COMMITTER_EMAIL"
+    git config user.name "$GIT_COMMITTER_NAME"
+    git add README.md
+    git commit -m "Test commit [skip ci]" || return 1
+    git push origin HEAD || return 1
+    
+    log_msg "Changes pushed"
+}
+
+calc_project_id() {
+    local path="${SAMPLE_PROJECT_REPO#https://}"
+    path=$(echo "$path" | cut -d'/' -f2- | sed 's/\.git$//')
+    PROJECT_ID=$(echo "$path" | sed 's/\//%2F/g')
+    log_msg "Project identifier: $PROJECT_ID"
+}
+
 main() {
     log_msg "Starting GitLab integration test"
     
@@ -197,6 +237,11 @@ main() {
     create_test_group || exit 1
     create_test_user || exit 1
     add_member || exit 1
+    
+    commit_and_push || exit 1
+    
+    calc_project_id
+
     
     return 0
 }

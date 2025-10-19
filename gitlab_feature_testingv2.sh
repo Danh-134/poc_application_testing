@@ -225,6 +225,67 @@ calc_project_id() {
     log_msg "Project identifier: $PROJECT_ID"
 }
 
+#------------------------------------------------------------------------------
+# Robot Framework tests
+#------------------------------------------------------------------------------
+
+write_robot_tests() {
+    log_msg "Generating test suite..."
+    
+    cd "$SCRIPT_DIR"
+    
+    cat > api_tests.robot << 'ROBOTEOF'
+*** Settings ***
+Library    RequestsLibrary
+Library    Collections
+
+*** Variables ***
+${BASE_URL}    %GITLAB_URL%
+${TOKEN}       %GITLAB_TOKEN%
+
+*** Test Cases ***
+Check API Version
+    [Tags]    smoke
+    Create Session    api    ${BASE_URL}    verify=${False}
+    ${r}=    GET On Session    api    /api/v4/version
+    Status Should Be    200    ${r}
+    Dictionary Should Contain Key    ${r.json()}    version
+
+Verify Group
+    [Tags]    group
+    Create Session    api    ${BASE_URL}    verify=${False}
+    &{headers}=    Create Dictionary    PRIVATE-TOKEN=${TOKEN}
+    ${r}=    GET On Session    api    /api/v4/groups/%GROUP_ID%    headers=${headers}
+    Status Should Be    200    ${r}
+    Should Be Equal As Strings    ${r.json()}[name]    %GROUP_NAME%
+
+Verify User
+    [Tags]    user
+    Create Session    api    ${BASE_URL}    verify=${False}
+    &{headers}=    Create Dictionary    PRIVATE-TOKEN=${TOKEN}
+    ${r}=    GET On Session    api    /api/v4/users/%USER_ID%    headers=${headers}
+    Status Should Be    200    ${r}
+    Should Be Equal As Strings    ${r.json()}[username]    %USER_NAME%
+ROBOTEOF
+
+    # Replace placeholders
+    sed -i "s|%GITLAB_URL%|${GITLAB_API_URL}|g" api_tests.robot
+    sed -i "s|%GITLAB_TOKEN%|${GITLAB_PRIVATE_TOKEN}|g" api_tests.robot
+    sed -i "s|%GROUP_ID%|${GROUP_ID}|g" api_tests.robot
+    sed -i "s|%GROUP_NAME%|${GROUP_NAME}|g" api_tests.robot
+    sed -i "s|%USER_ID%|${USER_ID}|g" api_tests.robot
+    sed -i "s|%USER_NAME%|${USER_USERNAME}|g" api_tests.robot
+}
+
+run_tests() {
+    log_msg "Running Robot Framework tests..."
+    
+    cd "$SCRIPT_DIR"
+    robot -d results -L INFO api_tests.robot || return 1
+    
+    log_msg "Tests completed - results in: ${SCRIPT_DIR}/results/"
+}
+
 main() {
     log_msg "Starting GitLab integration test"
     
@@ -242,6 +303,12 @@ main() {
     
     calc_project_id
 
+    cd "$SCRIPT_DIR"
+    write_robot_tests || exit 1
+    run_tests || exit 1
+    
+    log_msg "All tests passed"
+    log_msg "Summary: Group($GROUP_ID), User($USER_ID)"
     
     return 0
 }
